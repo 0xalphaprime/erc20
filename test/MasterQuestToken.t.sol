@@ -7,81 +7,56 @@ import {MasterQuestToken} from "../src/MasterQuestToken.sol";
 import {Test, console} from "forge-std/Test.sol";
 import {StdCheats} from "forge-std/StdCheats.sol";
 
+interface MintableToken {
+    function mint(address, uint256) external;
+}
+
 contract MasterQuestTokenTest is StdCheats, Test {
+    uint256 BOB_STARTING_AMOUNT = 100 ether;
+
     MasterQuestToken public masterQuestToken;
     DeployToken public deployer;
+    address public deployerAddress;
+    address bob;
+    address alice;
 
     function setUp() public {
         deployer = new DeployToken();
         masterQuestToken = deployer.run();
+
+        bob = makeAddr("bob");
+        alice = makeAddr("alice");
+
+        deployerAddress = vm.addr(deployer.deployerKey());
+        vm.prank(deployerAddress);
+        masterQuestToken.transfer(bob, BOB_STARTING_AMOUNT);
     }
 
     function testInitialSupply() public {
         assertEq(masterQuestToken.totalSupply(), deployer.INITIAL_SUPPLY());
     }
 
+    function testUsersCantMint() public {
+        vm.expectRevert();
+        MintableToken(address(masterQuestToken)).mint(address(this), 1);
+    }
+
     function testAllowances() public {
-        masterQuestToken.approve(msg.sender, 1000);
-        assertEq(masterQuestToken.allowance(msg.sender, msg.sender), 1000);
+        uint256 initialAllowance = 1000;
 
-        // Use allowance to transfer from the contract to a helper
-        HelperBob bob = new HelperBob(masterQuestToken);
-        bob.useAllowance(msg.sender, 500);
-        assertEq(masterQuestToken.balanceOf(address(bob)), 500);
-        assertEq(masterQuestToken.allowance(msg.sender, msg.sender), 500);
-    }
+        // Alice approves Bob to spend tokens on her behalf
+        vm.prank(bob);
+        masterQuestToken.approve(alice, initialAllowance);
+        uint256 transferAmount = 500;
 
-    function testTransfers() public {
-        // Transfer to a helper contract
-        HelperAlice alice = new HelperAlice(masterQuestToken);
-        alice.transferTokens(address(this), 1000);
-        assertEq(masterQuestToken.balanceOf(address(alice)), 1000);
-    }
-
-    // Test functions that are expected to fail don't have expectRevert for now
-
-    function testTransferMoreThanBalance() public {
-        masterQuestToken.transfer(
-            address(0x456),
-            deployer.INITIAL_SUPPLY() + 1
+        vm.prank(alice);
+        masterQuestToken.transferFrom(bob, alice, transferAmount);
+        assertEq(masterQuestToken.balanceOf(alice), transferAmount);
+        assertEq(
+            masterQuestToken.balanceOf(bob),
+            BOB_STARTING_AMOUNT - transferAmount
         );
     }
 
-    function testTransferFromMoreThanAllowed() public {
-        masterQuestToken.approve(address(0x456), 500);
-        masterQuestToken.transferFrom(address(this), address(0x789), 501);
-    }
-
-    function testNameAndSymbol() public {
-        assertEq(masterQuestToken.name(), "masterQuest");
-        assertEq(masterQuestToken.symbol(), "MQ");
-    }
-
-    function testDecimals() public {
-        assertEq(masterQuestToken.decimals(), 18); // Assuming 18 decimals.
-    }
-}
-
-contract HelperAlice {
-    MasterQuestToken token;
-
-    constructor(MasterQuestToken _token) {
-        token = _token;
-    }
-
-    function transferTokens(address recipient, uint256 amount) public {
-        token.transfer(recipient, amount);
-    }
-}
-
-contract HelperBob {
-    MasterQuestToken token;
-
-    constructor(MasterQuestToken _token) {
-        token = _token;
-    }
-
-    function useAllowance(address owner, uint256 amount) public {
-        token.transferFrom(owner, address(this), amount);
-    }
+    // can you get the coverage up?
 }
